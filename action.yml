@@ -25,6 +25,12 @@ inputs:
   version:
     description: 'docassert version to install (default: latest release).'
     default: ''
+  version-file:
+    description: >-
+      Path to a file whose first line pins the docassert version (e.g.
+      `.docassert-version`). Used when `version` is empty; lets repos keep the
+      pin outside workflow files so automation can bump it with GITHUB_TOKEN.
+    default: ''
   extras:
     description: 'pip extras to install (e.g. "ai" for advisory checks; empty for none).'
     default: 'ai'
@@ -52,8 +58,13 @@ runs:
       env:
         EXTRAS: ${{ inputs.extras }}
         VERSION: ${{ inputs.version }}
+        VERSION_FILE: ${{ inputs.version-file }}
       run: |
         set -euo pipefail
+        if [ -z "$VERSION" ] && [ -n "$VERSION_FILE" ] && [ -f "$VERSION_FILE" ]; then
+          VERSION="$(head -n1 "$VERSION_FILE" | tr -d '[:space:]')"
+          echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "invalid version in $VERSION_FILE: '$VERSION'" >&2; exit 2; }
+        fi
         spec="docassert"
         if [ -n "$EXTRAS" ]; then spec="docassert[$EXTRAS]"; fi
         if [ -n "$VERSION" ]; then spec="${spec}==${VERSION}"; fi
