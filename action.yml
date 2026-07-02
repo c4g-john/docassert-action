@@ -40,35 +40,47 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
       with:
         python-version: '3.12'
 
+    # All ${{ }} values are passed through env and referenced as quoted shell
+    # variables, never interpolated into the script body, so no input can be
+    # executed as shell.
     - name: Install docassert
       shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+        VERSION: ${{ inputs.version }}
       run: |
+        set -euo pipefail
         spec="docassert"
-        if [ -n "${{ inputs.extras }}" ]; then spec="docassert[${{ inputs.extras }}]"; fi
-        if [ -n "${{ inputs.version }}" ]; then spec="${spec}==${{ inputs.version }}"; fi
+        if [ -n "$EXTRAS" ]; then spec="docassert[$EXTRAS]"; fi
+        if [ -n "$VERSION" ]; then spec="${spec}==${VERSION}"; fi
         pip install --quiet "$spec"
         docassert --version
 
     - name: Run docassert
       shell: bash
       env:
+        CMD: ${{ inputs.command }}
+        PATHS: ${{ inputs.paths }}
+        CHANGED_ONLY: ${{ inputs.changed-only }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
       run: |
         set -euo pipefail
-        case "${{ inputs.command }}" in
+        case "$CMD" in
           validate)
-            files="${{ inputs.paths }}"
-            if [ "${{ inputs.changed-only }}" = "true" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
-              files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD -- 'documents/**/*.md' | tr '\n' ' ')"
+            files="$PATHS"
+            if [ "$CHANGED_ONLY" = "true" ] && [ -n "$BASE_SHA" ]; then
+              files="$(git diff --name-only "$BASE_SHA" HEAD -- 'documents/**/*.md' | tr '\n' ' ')"
               if [ -z "${files// /}" ]; then
                 echo "docassert: no documents changed — nothing to validate."
                 exit 0
               fi
             fi
+            # $files is intentionally unquoted so the shell expands the glob.
             docassert validate $files --markdown docassert-comment.md --junit docassert-report.xml
             ;;
           consistency)
@@ -83,7 +95,7 @@ runs:
             docassert projects --check --out projects.yaml
             ;;
           *)
-            echo "docassert-action: unknown command '${{ inputs.command }}'" >&2
+            echo "docassert-action: unknown command '$CMD'" >&2
             exit 2
             ;;
         esac
@@ -93,8 +105,9 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         if [ -s docassert-comment.md ]; then
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file docassert-comment.md \
+          gh pr comment "$PR_NUMBER" --body-file docassert-comment.md \
             || echo "::warning::could not post the PR comment (needs permissions: pull-requests: write)"
         fi
