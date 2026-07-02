@@ -1,0 +1,100 @@
+name: 'docassert'
+description: 'Unit testing for business documents — validate, check cross-document consistency, and build derived status pages.'
+author: 'C4G Enterprises Inc.'
+branding:
+  icon: 'check-square'
+  color: 'blue'
+
+inputs:
+  command:
+    description: >-
+      What to run: `validate` (documents against their criteria),
+      `consistency` (registry freshness + cross-document checks + RTM),
+      `pages` (build the status site into _site/), or
+      `projects-check` (registry freshness only).
+    default: 'validate'
+  paths:
+    description: 'Glob(s) for `validate` (ignored by other commands).'
+    default: 'documents/**/*.md'
+  changed-only:
+    description: >-
+      For `validate` on a pull request: validate only the documents changed
+      vs the PR base (requires actions/checkout with fetch-depth: 0).
+      Falls back to `paths` outside a PR.
+    default: 'false'
+  version:
+    description: 'docassert version to install (default: latest release).'
+    default: ''
+  extras:
+    description: 'pip extras to install (e.g. "ai" for advisory checks; empty for none).'
+    default: 'ai'
+  comment:
+    description: >-
+      Post the result as a PR comment when running on a pull request
+      (needs `permissions: pull-requests: write` in the calling job).
+    default: 'true'
+  anthropic-api-key:
+    description: 'Anthropic API key for AI advisory checks (optional; structural checks gate without it).'
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install docassert
+      shell: bash
+      run: |
+        spec="docassert"
+        if [ -n "${{ inputs.extras }}" ]; then spec="docassert[${{ inputs.extras }}]"; fi
+        if [ -n "${{ inputs.version }}" ]; then spec="${spec}==${{ inputs.version }}"; fi
+        pip install --quiet "$spec"
+        docassert --version
+
+    - name: Run docassert
+      shell: bash
+      env:
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: |
+        set -euo pipefail
+        case "${{ inputs.command }}" in
+          validate)
+            files="${{ inputs.paths }}"
+            if [ "${{ inputs.changed-only }}" = "true" ] && [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+              files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD -- 'documents/**/*.md' | tr '\n' ' ')"
+              if [ -z "${files// /}" ]; then
+                echo "docassert: no documents changed — nothing to validate."
+                exit 0
+              fi
+            fi
+            docassert validate $files --markdown docassert-comment.md --junit docassert-report.xml
+            ;;
+          consistency)
+            docassert projects --check --out projects.yaml
+            docassert rtm --out RTM.md
+            docassert consistency --markdown docassert-comment.md --junit docassert-report.xml
+            ;;
+          pages)
+            docassert pages --out _site
+            ;;
+          projects-check)
+            docassert projects --check --out projects.yaml
+            ;;
+          *)
+            echo "docassert-action: unknown command '${{ inputs.command }}'" >&2
+            exit 2
+            ;;
+        esac
+
+    - name: Post result to the PR
+      if: ${{ always() && inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [ -s docassert-comment.md ]; then
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file docassert-comment.md \
+            || echo "::warning::could not post the PR comment (needs permissions: pull-requests: write)"
+        fi
