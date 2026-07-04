@@ -51,7 +51,7 @@ Make the gate binding with branch protection requiring the `audit` and
 | `command` | `validate` | `validate` · `consistency` (registry check + graph + RTM) · `pages` (build `_site/`) · `projects-check` |
 | `paths` | `documents/**/*.md` | Globs for `validate`. |
 | `changed-only` | `false` | On a PR, validate only the changed documents (checkout needs `fetch-depth: 0`). |
-| `version` | *(latest)* | Pin a docassert version, e.g. `0.5.0`. |
+| `version` | *(latest)* | Pin a docassert version, e.g. `1.0.0`. |
 | `extras` | `ai` | pip extras; empty string installs the bare package. |
 | `comment` | `true` | Post the result as a PR comment (needs `pull-requests: write`). |
 | `anthropic-api-key` | *(empty)* | Enables AI advisory checks; structural checks gate without it. |
