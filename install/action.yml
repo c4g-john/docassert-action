@@ -1,0 +1,44 @@
+name: 'Install docassert (self-healing)'
+description: >-
+  pip-installs docassert at a pinned version, retrying through PyPI index
+  propagation so fresh releases never fail a gate. Reads the pin from a
+  version file (first line) unless an explicit version is given.
+inputs:
+  version:
+    description: 'Exact version to install (overrides version-file).'
+    default: ''
+  version-file:
+    description: 'File whose first line is the version pin.'
+    default: '.docassert-version'
+  extras:
+    description: 'pip extras, e.g. "ai".'
+    default: ''
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        VERSION_FILE: ${{ inputs.version-file }}
+        EXTRAS: ${{ inputs.extras }}
+      run: |
+        set -euo pipefail
+        v="$VERSION"
+        if [ -z "$v" ] && [ -f "$VERSION_FILE" ]; then
+          v="$(head -n1 "$VERSION_FILE" | tr -d '[:space:]')"
+        fi
+        spec="docassert"
+        if [ -n "$EXTRAS" ]; then spec="docassert[$EXTRAS]"; fi
+        if [ -n "$v" ]; then
+          echo "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::bad version '$v'"; exit 2; }
+          spec="${spec}==${v}"
+        fi
+        for attempt in 1 2 3 4; do
+          if pip install --quiet "$spec"; then break; fi
+          if [ "$attempt" = "4" ]; then
+            echo "::error::could not install $spec after 4 attempts"; exit 1
+          fi
+          echo "install attempt $attempt failed (likely index propagation); retrying in 75s"
+          sleep 75
+        done
+        docassert --version
