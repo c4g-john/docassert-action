@@ -68,7 +68,16 @@ runs:
         spec="docassert"
         if [ -n "$EXTRAS" ]; then spec="docassert[$EXTRAS]"; fi
         if [ -n "$VERSION" ]; then spec="${spec}==${VERSION}"; fi
-        pip install --quiet "$spec"
+        # Self-healing install: pinned releases can trail PyPI's CDN by a few
+        # minutes right after publish. Converge instead of failing the gate.
+        for attempt in 1 2 3 4; do
+          if pip install --quiet "$spec"; then break; fi
+          if [ "$attempt" = "4" ]; then
+            echo "::error::could not install $spec after 4 attempts"; exit 1
+          fi
+          echo "install attempt $attempt failed (likely index propagation); retrying in 75s"
+          sleep 75
+        done
         docassert --version
 
     - name: Run docassert
