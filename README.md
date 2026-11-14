@@ -115,3 +115,10 @@ same cache and retry behavior. Run installer tests with:
 ```sh
 python -m unittest discover -s tests -v
 ```
+
+A cache marked complete but missing/corrupt wheels fails visibly rather than
+silently redownloading. Delete that exact GitHub Actions cache to rebuild it;
+the normal weekly key rotation also replaces it. A failed initial wheel build
+never writes the completion marker or saves a successful cache. CI exercises
+both action entrypoints' shared installer unit tests plus install-only composite
+cold/warm jobs, including a fresh environment with package indexes disabled.

@@ -2,6 +2,7 @@ import datetime
 import importlib.util
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
@@ -81,6 +82,22 @@ class InstallerTest(unittest.TestCase):
         run = Mock(return_value=Mock(returncode=0))
         installer.install(data['spec'], data['directory'], run=run)
         self.assertEqual(run.call_args_list[0].args[0][3], 'wheel')
+
+    def test_empty_pin_fails_instead_of_silently_tracking_latest(self):
+        pin = Path(self.tmp.name) / '.docassert-version'
+        pin.write_text('')
+        with self.assertRaises(ValueError):
+            self.prepare(VERSION='', VERSION_FILE=str(pin))
+
+    def test_corrupt_complete_cache_fails_without_network_fallback(self):
+        data = self.prepare()
+        folder = Path(data['directory']); folder.mkdir()
+        (folder / '.complete').write_text(data['spec'])
+        run = Mock(side_effect=subprocess.CalledProcessError(1, ['pip']))
+        with self.assertRaises(subprocess.CalledProcessError):
+            installer.install(data['spec'], data['directory'], run=run)
+        self.assertEqual(run.call_count, 1)
+        self.assertIn('--no-index', run.call_args.args[0])
 
 
 if __name__ == '__main__':
