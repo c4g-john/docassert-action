@@ -50,35 +50,29 @@ runs:
       with:
         python-version: '3.12'
 
-    # All ${{ }} values are passed through env and referenced as quoted shell
-    # variables, never interpolated into the script body, so no input can be
-    # executed as shell.
-    - name: Install docassert
+    - name: Resolve docassert and cache identity
+      id: docassert-cache
       shell: bash
       env:
-        EXTRAS: ${{ inputs.extras }}
         VERSION: ${{ inputs.version }}
         VERSION_FILE: ${{ inputs.version-file }}
-      run: |
-        set -euo pipefail
-        if [ -z "$VERSION" ] && [ -n "$VERSION_FILE" ] && [ -f "$VERSION_FILE" ]; then
-          VERSION="$(head -n1 "$VERSION_FILE" | tr -d '[:space:]')"
-          echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "invalid version in $VERSION_FILE: '$VERSION'" >&2; exit 2; }
-        fi
-        spec="docassert"
-        if [ -n "$EXTRAS" ]; then spec="docassert[$EXTRAS]"; fi
-        if [ -n "$VERSION" ]; then spec="${spec}==${VERSION}"; fi
-        # Self-healing install: pinned releases can trail PyPI's CDN by a few
-        # minutes right after publish. Converge instead of failing the gate.
-        for attempt in 1 2 3 4; do
-          if pip install --quiet "$spec"; then break; fi
-          if [ "$attempt" = "4" ]; then
-            echo "::error::could not install $spec after 4 attempts"; exit 1
-          fi
-          echo "install attempt $attempt failed (likely index propagation); retrying in 75s"
-          sleep 75
-        done
-        docassert --version
+        EXTRAS: ${{ inputs.extras }}
+        INSTALLER: ${{ github.action_path }}/scripts/install.py
+      run: python "$INSTALLER" prepare
+
+    - name: Restore docassert wheels
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.docassert-cache.outputs.directory }}
+        key: ${{ steps.docassert-cache.outputs.key }}
+
+    - name: Install docassert from wheels
+      shell: bash
+      env:
+        DOCASSERT_SPEC: ${{ steps.docassert-cache.outputs.spec }}
+        DOCASSERT_WHEELHOUSE: ${{ steps.docassert-cache.outputs.directory }}
+        INSTALLER: ${{ github.action_path }}/scripts/install.py
+      run: python "$INSTALLER" install
 
     - name: Run docassert
       shell: bash
